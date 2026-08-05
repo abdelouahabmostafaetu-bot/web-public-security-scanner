@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Web Public Security Scanner",
-  "version": "1.2.0",
-  "description": "Read-only step-by-step public page security scan: PDF, account/VIP, JWT, Firebase, secrets, links, libraries.",
+  "version": "1.3.0",
+  "description": "Read-only vulnerability heuristics: PDF, VIP/account, secrets, XSS sinks, eval, admin paths, Firebase, sourcemaps, and more.",
   "action": {
     "default_title": "Public Security Scan",
     "default_popup": "popup.html",

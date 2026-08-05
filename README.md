@@ -1,56 +1,46 @@
-# Web Public Security Scanner
+# Web Public Security Scanner v1.3
 
-إضافة متصفح (Chrome/Edge/Brave) للفحص الأمني **القراءة فقط** خطوة بخطوة.
+إضافة متصفح **قراءة فقط** لفحص إشارات أمنية/ثغرات شائعة في الصفحة الحالية.
 
-**Repo:** https://github.com/abdelouahabmostafaetu-bot/web-public-security-scanner  
-**Version:** 1.2.0
+**Repo:** https://github.com/abdelouahabmostafaetu-bot/web-public-security-scanner
 
-## ماذا تفحص v1.2؟
+## 22 اختبارًا خطوة بخطوة
 
 1. HTTPS  
-2. CSP / meta  
-3. الأصول + Service Worker  
-4. مكتبات JS الشائعة (إشارة فقط)  
-5. روابط API/Backend  
-6. Firebase + projectId hints من التخزين  
-7. أسرار/مفاتيح في السورس وروابط الصفحة  
-8. **PDF / Storage / blob + أزرار تحميل/طباعة**  
-9. **الحساب / VIP / auth في localStorage**  
-10. **JWT في التخزين**  
-11. النماذج وكلمات المرور  
-12. روابط target=_blank / javascript:  
-13. الكوكيز الظاهرة  
-14. Paywall UI  
-15. Mixed content  
-16. الملخص + تصدير JSON  
+2. CSP / meta / framing  
+3. Assets + Service Worker  
+4. مكتبات JS  
+5. API URLs  
+6. Firebase / projectId  
+7. Secrets  
+8. PDF / Storage / blob  
+9. Account / VIP  
+10. JWT  
+11. Forms  
+12. Dangerous links + open redirect params  
+13. **DOM XSS sinks**  
+14. **eval / new Function / document.write / postMessage ***  
+15. **Admin/debug paths**  
+16. **Source maps**  
+17. **Emails/phones**  
+18. **Iframes**  
+19. Cookies  
+20. Paywall UI  
+21. Mixed content  
+22. Summary + JSON export  
 
-## التثبيت
+## تثبيت / تحديث
 
 ```bash
-git clone https://github.com/abdelouahabmostafaetu-bot/web-public-security-scanner.git
+git pull
 ```
 
-1. `chrome://extensions` → Developer mode  
-2. Load unpacked → مجلد `extension/`  
-3. بعد كل تحديث: زر **Reload** ثم امسح/أعد فتح الموقع وامسح  
-
-## كيف تضيف اختبارات أكثر؟
-
-1. أضف خطوة في `popup.js` → `STEP_DEFS`  
-2. اكتب الفحص في `content.js` → `runScan()`  
-3. `timeline.push` + `findings.push`  
-4. ارفع النسخة  
-
-### أفكار من GitHub (ملهمة وليست نسخًا)
-- [RetireJS/retire.js](https://github.com/RetireJS/retire.js) — مكتبات JS قديمة  
-- [momenbasel/keyFinder](https://github.com/momenbasel/keyFinder) — أسرار في storage/network  
-- [bountyyfi/lonkero](https://github.com/bountyyfi/lonkero) — JWT + endpoints  
-- [yipjunkai/secrets-spotter](https://github.com/yipjunkai/secrets-spotter) — اعتراض fetch/XHR  
+`chrome://extensions` → **Reload** → افتح الموقع → Start scan
 
 ## مهم
-- لا تخترق ولا تتجاوز اشتراكات الغير  
-- Firebase projectId ظاهر ≠ قراءة كل الملفات  
-- الحماية = Auth + Security Rules  
+- لا تستغل ولا تتجاوز اشتراكات الغير
+- النتائج Heuristics (قد تكون إيجابية كاذبة)
+- Google API key في Firebase غالبًا طبيعي
 
 ## License
 MIT

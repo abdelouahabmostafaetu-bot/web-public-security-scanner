@@ -11,22 +11,28 @@ const summaryCards = document.getElementById("summaryCards");
 let lastReport = null;
 
 const STEP_DEFS = [
-  { id: "https", title: "1) HTTPS & origin" },
-  { id: "meta", title: "2) Meta / CSP / referrer" },
+  { id: "https", title: "1) HTTPS" },
+  { id: "meta", title: "2) CSP / meta / framing" },
   { id: "assets", title: "3) Assets + Service Worker" },
-  { id: "libs", title: "4) Known JS library versions" },
+  { id: "libs", title: "4) JS libraries" },
   { id: "endpoints", title: "5) API / backend URLs" },
-  { id: "firebase", title: "6) Firebase / project clues" },
-  { id: "secrets", title: "7) Secret patterns in source" },
-  { id: "pdf", title: "8) PDF / Storage / blob links" },
-  { id: "account", title: "9) Account / VIP / auth signals" },
-  { id: "jwt", title: "10) JWT in storage/URL" },
-  { id: "forms", title: "11) Forms & passwords" },
-  { id: "links", title: "12) Dangerous links / tabs" },
-  { id: "cookies", title: "13) Visible cookies" },
-  { id: "paywall", title: "14) Paywall UI heuristics" },
-  { id: "mixed", title: "15) Mixed content" },
-  { id: "summary", title: "16) Final status" }
+  { id: "firebase", title: "6) Firebase clues" },
+  { id: "secrets", title: "7) Secrets / keys" },
+  { id: "pdf", title: "8) PDF / storage links" },
+  { id: "account", title: "9) Account / VIP" },
+  { id: "jwt", title: "10) JWT storage" },
+  { id: "forms", title: "11) Forms / passwords" },
+  { id: "links", title: "12) Dangerous links" },
+  { id: "xss", title: "13) DOM XSS sinks" },
+  { id: "dangerousjs", title: "14) eval / document.write" },
+  { id: "admin", title: "15) Admin / debug paths" },
+  { id: "sourcemap", title: "16) Source maps" },
+  { id: "pii", title: "17) Emails / phones in page" },
+  { id: "iframes", title: "18) Iframes / embeds" },
+  { id: "cookies", title: "19) Cookies" },
+  { id: "paywall", title: "20) Paywall UI" },
+  { id: "mixed", title: "21) Mixed content" },
+  { id: "summary", title: "22) Final status" }
 ];
 
 function setStatus(kind, text) {
@@ -62,8 +68,8 @@ function renderReport(report) {
   exportBtn.disabled = !report;
   const c = report.counts || { high: 0, medium: 0, low: 0, info: 0 };
   summaryCards.innerHTML = `
-    <div class="card bad"><div class="n">${c.high}</div><div class="t">High</div></div>
-    <div class="card warn"><div class="n">${c.medium}</div><div class="t">Medium</div></div>
+    <div class="card bad"><div class="n">${c.high || 0}</div><div class="t">High</div></div>
+    <div class="card warn"><div class="n">${c.medium || 0}</div><div class="t">Medium</div></div>
     <div class="card ok"><div class="n">${(c.low || 0) + (c.info || 0)}</div><div class="t">Low/Info</div></div>
   `;
   findingsEl.innerHTML = "";
@@ -79,7 +85,7 @@ function renderReport(report) {
     findingsEl.appendChild(div);
   });
   if (!report.findings?.length) {
-    findingsEl.innerHTML = `<div class="finding"><span class="sev low">OK</span><h3>No findings</h3><p>Public client-side checks only.</p></div>`;
+    findingsEl.innerHTML = `<div class="finding"><span class="sev low">OK</span><h3>No findings</h3><p>Public checks only.</p></div>`;
   }
 }
 
@@ -113,10 +119,7 @@ scanBtn.addEventListener("click", async () => {
   progressBar.style.width = "0%";
   try {
     await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content.js"] });
-    const response = await chrome.tabs.sendMessage(tab.id, {
-      type: "RUN_PUBLIC_SECURITY_SCAN",
-      steps: STEP_DEFS.map((s) => s.id)
-    });
+    const response = await chrome.tabs.sendMessage(tab.id, { type: "RUN_PUBLIC_SECURITY_SCAN" });
     if (!response?.ok) throw new Error(response?.error || "Scan failed");
     const timeline = response.timeline || [];
     for (let i = 0; i < timeline.length; i++) {
@@ -125,7 +128,7 @@ scanBtn.addEventListener("click", async () => {
       renderSteps(states);
       progressText.textContent = `${i + 1} / ${STEP_DEFS.length}`;
       progressBar.style.width = `${Math.round(((i + 1) / STEP_DEFS.length) * 100)}%`;
-      await new Promise((r) => setTimeout(r, 70));
+      await new Promise((r) => setTimeout(r, 55));
     }
     renderReport(response.report);
     setStatus("done", response.report?.status || "Done");

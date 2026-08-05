@@ -1,34 +1,24 @@
-# شرح الاختبارات بالعربية
+# شرح فحوصات الثغرات (عربي)
 
-## الفكرة
-الإضافة لا تهجم الموقع. تقرأ فقط ما يظهر للمتصفح: HTML/JS، التخزين، الروابط، إشارات Firebase.
+## ماذا تعني المستويات؟
+- **High**: يستحق اهتمام فوري (HTTPS غائب، أسرار قوية، mixed content، eval…)
+- **Medium**: راجع يدويًا (VIP في localStorage، sinks XSS، admin paths، PDF عام)
+- **Low/Info**: ملاحظات / سياق
 
-## اختبارات PDF
-| نتيجة | المعنى |
-|---|---|
-| رابط `https://...pdf` | ملف قد يكون عامًا — اختبر Incognito |
-| `firebasestorage.googleapis.com` | تخزين سحابي — يعتمد على token/rules |
-| `blob:` | ملف مؤقت في المتصفح |
-| لا رابط + زر طباعة/`window.print` | تجهيز ثم Print to PDF |
+## فحوصات جديدة v1.3
+1. **DOM XSS sinks**: innerHTML/document.write… وجودها ≠ ثغرة، لكن خطر إن دخلت مدخلات مستخدم.
+2. **eval/new Function**: تنفيذ نص ككود — خطر إن تأثر بمدخل خارجي.
+3. **Admin paths**: /admin /debug /.env في السورس.
+4. **Source maps**: قد تكشف الكود الأصلي.
+5. **Emails/phones**: بيانات ظاهرة.
+6. **Iframes**: طرف ثالث / sandbox.
+7. **Open redirect params**: ?next=https://...
 
-## اختبارات الحساب / VIP
-| إشارة | المعنى |
-|---|---|
-| `was_vip_USER=false` | مسجّل غالبًا وغير مشترك |
-| `was_vip_USER=true` | الواجهة تظنك VIP — يجب تحقق السيرفر |
-| مفاتيح auth/token | جلسة على الجهاز |
-| JWT في storage | توكن قابل للسرقة عبر XSS |
+## Firebase API key
+مفتاح `AIza...` العام طبيعي. ليس Admin SDK. الحماية = Rules.
 
-## Firebase projectId (مثل academie-a2586)
-- يظهر أحيانًا في مفاتيح `firestore_zombie_...`  
-- **ليس كلمة سر**  
-- لا يفتح الملفات لوحده  
-- القراءة فقط إن سمحت Security Rules + تسجيل الدخول  
+## VIP localStorage
+`was_vip=false` يعني الواجهة تعرف أنك غير مشترك. الحماية الحقيقية من السيرفر.
 
-## هل يوجد خطأ؟
-- **High**: HTTPS غائب، أسرار قوية، mixed content  
-- **Medium**: VIP في localStorage، PDF عام، API مكشوف، JWT  
-- **Low/Info**: ملاحظات عادية (CSP meta، كاش SW، مكتبات)  
-
-## تذكير
-القفل الحقيقي للمحتوى المدفوع = رفض السيرفر/Firestore، ليس إخفاء الزر فقط.
+## PDF
+لا رابط مباشر + print = طبيعي للمحتوى المجاني.
