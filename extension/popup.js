@@ -36,19 +36,8 @@ const STEP_DEFS = [
 ];
 
 function setStatus(kind, text) {
-  globalStatus.className = `badge ${kind}`;
+  globalStatus.className = "badge " + kind;
   globalStatus.textContent = text;
-}
-
-function renderSteps(states = {}) {
-  stepsList.innerHTML = "";
-  STEP_DEFS.forEach((s) => {
-    const st = states[s.id] || { state: "wait", detail: "Waiting…" };
-    const li = document.createElement("li");
-    li.className = st.state;
-    li.innerHTML = `<div class="title">${s.title}</div><div class="meta">${escapeHtml(st.detail || "")}</div>`;
-    stepsList.appendChild(li);
-  });
 }
 
 function escapeHtml(str) {
@@ -63,91 +52,166 @@ function severityClass(sev) {
   return ["info", "low", "medium", "high"].includes(sev) ? sev : "info";
 }
 
+function renderSteps(states) {
+  states = states || {};
+  stepsList.innerHTML = "";
+  STEP_DEFS.forEach(function (s) {
+    var st = states[s.id] || { state: "wait", detail: "Waiting…" };
+    var li = document.createElement("li");
+    li.className = st.state;
+    li.innerHTML =
+      '<div class="title">' +
+      escapeHtml(s.title) +
+      '</div><div class="meta">' +
+      escapeHtml(st.detail || "") +
+      "</div>";
+    stepsList.appendChild(li);
+  });
+}
+
 function renderReport(report) {
   lastReport = report;
   exportBtn.disabled = !report;
-  const c = report.counts || { high: 0, medium: 0, low: 0, info: 0 };
-  summaryCards.innerHTML = `
-    <div class="card bad"><div class="n">${c.high || 0}</div><div class="t">High</div></div>
-    <div class="card warn"><div class="n">${c.medium || 0}</div><div class="t">Medium</div></div>
-    <div class="card ok"><div class="n">${(c.low || 0) + (c.info || 0)}</div><div class="t">Low/Info</div></div>
-  `;
+  var c = report.counts || { high: 0, medium: 0, low: 0, info: 0 };
+  summaryCards.innerHTML =
+    '<div class="card bad"><div class="n">' +
+    (c.high || 0) +
+    '</div><div class="t">High</div></div>' +
+    '<div class="card warn"><div class="n">' +
+    (c.medium || 0) +
+    '</div><div class="t">Medium</div></div>' +
+    '<div class="card ok"><div class="n">' +
+    ((c.low || 0) + (c.info || 0)) +
+    '</div><div class="t">Low/Info</div></div>';
+
   findingsEl.innerHTML = "";
-  (report.findings || []).forEach((f) => {
-    const div = document.createElement("div");
+  (report.findings || []).forEach(function (f) {
+    var div = document.createElement("div");
     div.className = "finding";
-    div.innerHTML = `
-      <span class="sev ${severityClass(f.severity)}">${escapeHtml((f.severity || "info").toUpperCase())}</span>
-      <h3>${escapeHtml(f.title)}</h3>
-      <p>${escapeHtml(f.detail || "")}</p>
-      ${f.evidence ? `<code>${escapeHtml(f.evidence)}</code>` : ""}
-    `;
+    div.innerHTML =
+      '<span class="sev ' +
+      severityClass(f.severity) +
+      '">' +
+      escapeHtml((f.severity || "info").toUpperCase()) +
+      "</span><h3>" +
+      escapeHtml(f.title || "") +
+      "</h3><p>" +
+      escapeHtml(f.detail || "") +
+      "</p>" +
+      (f.evidence ? "<code>" + escapeHtml(f.evidence) + "</code>" : "");
     findingsEl.appendChild(div);
   });
-  if (!report.findings?.length) {
-    findingsEl.innerHTML = `<div class="finding"><span class="sev low">OK</span><h3>No findings</h3><p>Public checks only.</p></div>`;
+  if (!(report.findings && report.findings.length)) {
+    findingsEl.innerHTML =
+      '<div class="finding"><span class="sev low">OK</span><h3>No findings</h3><p>Public checks only.</p></div>';
   }
 }
 
+function showError(msg) {
+  setStatus("error", "Error");
+  findingsEl.innerHTML =
+    '<div class="finding"><span class="sev high">ERROR</span><h3>Scan failed</h3><p>' +
+    escapeHtml(msg || "Unknown error") +
+    "</p><p>Fix: chrome://extensions → Reload extension → hard refresh the site (Ctrl+Shift+R) → Start scan again.</p></div>";
+}
+
 async function getActiveTab() {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  return tab;
+  var tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+  return tabs && tabs[0];
 }
 
 async function init() {
   renderSteps();
-  const tab = await getActiveTab();
-  pageUrlEl.textContent = tab?.url || "No active tab";
+  var tab = await getActiveTab();
+  pageUrlEl.textContent = (tab && tab.url) || "No active tab";
 }
 
-scanBtn.addEventListener("click", async () => {
-  const tab = await getActiveTab();
-  if (!tab?.id || !tab.url || /^(chrome|edge|about|chrome-extension):/i.test(tab.url)) {
-    setStatus("error", "Error");
-    alert("Open a normal http(s) website first.");
+scanBtn.addEventListener("click", async function () {
+  var tab = await getActiveTab();
+  if (!tab || !tab.id || !tab.url || /^(chrome|edge|about|chrome-extension|devtools):/i.test(tab.url)) {
+    showError("Open a normal website tab first (http/https), then click the extension on that tab.");
     return;
   }
+
   scanBtn.disabled = true;
   exportBtn.disabled = true;
   findingsEl.innerHTML = "";
   summaryCards.innerHTML = "";
   setStatus("running", "Running");
-  const states = {};
-  STEP_DEFS.forEach((s) => { states[s.id] = { state: "wait", detail: "Queued" }; });
+
+  var states = {};
+  STEP_DEFS.forEach(function (s) {
+    states[s.id] = { state: "wait", detail: "Queued" };
+  });
   renderSteps(states);
-  progressText.textContent = `0 / ${STEP_DEFS.length}`;
+  progressText.textContent = "0 / " + STEP_DEFS.length;
   progressBar.style.width = "0%";
+
   try {
-    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content.js"] });
-    const response = await chrome.tabs.sendMessage(tab.id, { type: "RUN_PUBLIC_SECURITY_SCAN" });
-    if (!response?.ok) throw new Error(response?.error || "Scan failed");
-    const timeline = response.timeline || [];
-    for (let i = 0; i < timeline.length; i++) {
-      const t = timeline[i];
+    // 1) Inject scanner file (idempotent)
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      files: ["content.js"]
+    });
+
+    // 2) Run scan IN PAGE and return result (more reliable than sendMessage)
+    var injected = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: async function () {
+        if (typeof globalThis.__runPublicSecurityScan !== "function") {
+          return { ok: false, error: "Scanner function missing after inject. Reload extension + page." };
+        }
+        try {
+          return await globalThis.__runPublicSecurityScan();
+        } catch (e) {
+          return { ok: false, error: (e && e.message) || String(e) };
+        }
+      }
+    });
+
+    var response = injected && injected[0] && injected[0].result;
+    if (!response) throw new Error("No result from page. Try reload extension + hard refresh page.");
+    if (!response.ok) throw new Error(response.error || "Scan failed inside page");
+
+    var timeline = response.timeline || [];
+    for (var i = 0; i < timeline.length; i++) {
+      var t = timeline[i];
       states[t.id] = { state: t.state || "ok", detail: t.detail || "Done" };
       renderSteps(states);
-      progressText.textContent = `${i + 1} / ${STEP_DEFS.length}`;
-      progressBar.style.width = `${Math.round(((i + 1) / STEP_DEFS.length) * 100)}%`;
-      await new Promise((r) => setTimeout(r, 55));
+      progressText.textContent = i + 1 + " / " + STEP_DEFS.length;
+      progressBar.style.width = Math.round(((i + 1) / STEP_DEFS.length) * 100) + "%";
+      await new Promise(function (r) {
+        setTimeout(r, 40);
+      });
     }
+
+    // fill any missing steps
+    STEP_DEFS.forEach(function (s) {
+      if (!states[s.id] || states[s.id].state === "wait") {
+        states[s.id] = { state: "ok", detail: "Done" };
+      }
+    });
+    renderSteps(states);
+    progressText.textContent = STEP_DEFS.length + " / " + STEP_DEFS.length;
+    progressBar.style.width = "100%";
+
     renderReport(response.report);
-    setStatus("done", response.report?.status || "Done");
+    setStatus("done", (response.report && response.report.status) || "Done");
   } catch (err) {
     console.error(err);
-    setStatus("error", "Error");
-    findingsEl.innerHTML = `<div class="finding"><span class="sev high">ERROR</span><h3>Scan failed</h3><p>${escapeHtml(err.message || String(err))}</p></div>`;
+    showError((err && err.message) || String(err));
   } finally {
     scanBtn.disabled = false;
   }
 });
 
-exportBtn.addEventListener("click", () => {
+exportBtn.addEventListener("click", function () {
   if (!lastReport) return;
-  const blob = new Blob([JSON.stringify(lastReport, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
+  var blob = new Blob([JSON.stringify(lastReport, null, 2)], { type: "application/json" });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement("a");
   a.href = url;
-  a.download = `public-security-scan-${Date.now()}.json`;
+  a.download = "public-security-scan-" + Date.now() + ".json";
   a.click();
   URL.revokeObjectURL(url);
 });
