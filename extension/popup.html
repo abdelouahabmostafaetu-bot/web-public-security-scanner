@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Public Security Scanner</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <span class="logo">🛡️</span>
+      <div>
+        <h1>Public Security Scanner</h1>
+        <p class="sub">Read-only · step-by-step · public assets only</p>
+      </div>
+    </div>
+  </header>
+
+  <section class="target">
+    <div class="label">Current page</div>
+    <div id="pageUrl" class="url">—</div>
+  </section>
+
+  <section class="actions">
+    <button id="scanBtn" class="primary">Start scan</button>
+    <button id="exportBtn" class="secondary" disabled>Export JSON</button>
+  </section>
+
+  <section class="status-box">
+    <div class="row">
+      <span>Status</span>
+      <strong id="globalStatus" class="badge idle">Idle</strong>
+    </div>
+    <div class="row">
+      <span>Progress</span>
+      <strong id="progressText">0 / 0</strong>
+    </div>
+    <div class="bar"><div id="progressBar"></div></div>
+  </section>
+
+  <section>
+    <h2>Steps</h2>
+    <ol id="stepsList" class="steps"></ol>
+  </section>
+
+  <section>
+    <h2>Findings</h2>
+    <div id="summaryCards" class="cards"></div>
+    <div id="findings" class="findings"></div>
+  </section>
+
+  <footer>
+    Defensive tool only. Does not exploit or bypass authentication.
+  </footer>
+
+  <script src="popup.js"></script>
+</body>
+</html>
