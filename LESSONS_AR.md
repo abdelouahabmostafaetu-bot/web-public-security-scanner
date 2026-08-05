@@ -1,24 +1,30 @@
-# شرح فحوصات الثغرات (عربي)
+# شرح عربي مختصر للاختبارات الاحترافية (v1.4)
 
-## ماذا تعني المستويات؟
-- **High**: يستحق اهتمام فوري (HTTPS غائب، أسرار قوية، mixed content، eval…)
-- **Medium**: راجع يدويًا (VIP في localStorage، sinks XSS، admin paths، PDF عام)
-- **Low/Info**: ملاحظات / سياق
+## مستويات الخطورة
+- **High**: يحتاج إصلاح فوري
+- **Medium**: يحتاج مراجعة
+- **Low / Info**: ملاحظات وسياق
 
-## فحوصات جديدة v1.3
-1. **DOM XSS sinks**: innerHTML/document.write… وجودها ≠ ثغرة، لكن خطر إن دخلت مدخلات مستخدم.
-2. **eval/new Function**: تنفيذ نص ككود — خطر إن تأثر بمدخل خارجي.
-3. **Admin paths**: /admin /debug /.env في السورس.
-4. **Source maps**: قد تكشف الكود الأصلي.
-5. **Emails/phones**: بيانات ظاهرة.
-6. **Iframes**: طرف ثالث / sandbox.
-7. **Open redirect params**: ?next=https://...
+## الوحدة الاحترافية (23 إلى 32)
 
-## Firebase API key
-مفتاح `AIza...` العام طبيعي. ليس Admin SDK. الحماية = Rules.
+| الاختبار | ماذا يعني بالعربية |
+|---|---|
+| Security headers | هل السيرفر يرسل حمايات مثل CSP و HSTS و X-Frame-Options |
+| CORS | هل الموقع يسمح لأي نطاق بقراءة البيانات مع الكوكيز |
+| SRI | هل ملفات CDN موقّعة بـ integrity حتى لا يُحقن كود إن اختُرق الـ CDN |
+| Supply chain | كم طرف ثالث يستطيع تنفيذ كود داخل الصفحة |
+| Access control | هل القفل موجود في الواجهة فقط (isVip) أم في السيرفر أيضًا |
+| Crypto | استخدام Math.random أو MD5 أو SHA1 لأشياء أمنية |
+| Powerful APIs | كاميرا، موقع جغرافي، حافظة، بصمة جهاز |
+| Data at rest | بيانات حساسة مخزّنة في localStorage |
+| Firebase audit | storageBucket و databaseURL وهل تحتاج قواعد أقوى |
+| OWASP grade | درجة من A+ إلى F مع ربط النتائج بـ OWASP Top 10 |
 
-## VIP localStorage
-`was_vip=false` يعني الواجهة تعرف أنك غير مشترك. الحماية الحقيقية من السيرفر.
+## قواعد مهمة
+- مفتاح Firebase العام `AIza...` **ليس** ثغرة بحد ذاته
+- `was_vip=false` إشارة واجهة، والحماية الحقيقية من Firestore Rules
+- عدم وجود رابط PDF مباشر يعني غالبًا Print-to-PDF
+- كل النتائج تقديرية (Heuristics) وقد تحتوي إيجابيات كاذبة
 
-## PDF
-لا رابط مباشر + print = طبيعي للمحتوى المجاني.
+## الاستخدام الأخلاقي
+افحص فقط المواقع التي تملكها أو لديك إذن بفحصها. الأداة لا تخترق ولا تتجاوز الاشتراكات.
