@@ -1,59 +1,56 @@
 # Web Public Security Scanner
 
-Browser extension (Chrome / Edge / Brave — Manifest V3) for **step-by-step, read-only** security checks on the **currently open website**.
+إضافة متصفح (Chrome/Edge/Brave) للفحص الأمني **القراءة فقط** خطوة بخطوة.
 
-> Defensive tool only. Does **not** exploit, bypass logins, or attack servers.
+**Repo:** https://github.com/abdelouahabmostafaetu-bot/web-public-security-scanner  
+**Version:** 1.2.0
 
-## Repo
-https://github.com/abdelouahabmostafaetu-bot/web-public-security-scanner
+## ماذا تفحص v1.2؟
 
-## Version 1.1 checks (step-by-step)
+1. HTTPS  
+2. CSP / meta  
+3. الأصول + Service Worker  
+4. مكتبات JS الشائعة (إشارة فقط)  
+5. روابط API/Backend  
+6. Firebase + projectId hints من التخزين  
+7. أسرار/مفاتيح في السورس وروابط الصفحة  
+8. **PDF / Storage / blob + أزرار تحميل/طباعة**  
+9. **الحساب / VIP / auth في localStorage**  
+10. **JWT في التخزين**  
+11. النماذج وكلمات المرور  
+12. روابط target=_blank / javascript:  
+13. الكوكيز الظاهرة  
+14. Paywall UI  
+15. Mixed content  
+16. الملخص + تصدير JSON  
 
-1. HTTPS / origin  
-2. Meta / CSP / generator / referrer  
-3. Scripts, styles, images, **Service Worker**  
-4. Public API / backend URL discovery (fonts de-prioritized)  
-5. **Firebase / web.app indicators**  
-6. Secret pattern heuristics (API keys, JWT, Stripe, PEM, …)  
-7. **Public PDF / Storage / blob link detection**  
-8. Forms & password fields  
-9. **localStorage / sessionStorage analysis (VIP flags, auth keys)**  
-10. Visible cookies (`document.cookie`)  
-11. **Paywall / VIP UI heuristics**  
-12. Mixed content  
-13. Final status + JSON export  
-
-## Install
+## التثبيت
 
 ```bash
 git clone https://github.com/abdelouahabmostafaetu-bot/web-public-security-scanner.git
-cd web-public-security-scanner
 ```
 
-1. Open `chrome://extensions`
-2. Enable **Developer mode**
-3. **Load unpacked** → select `extension/`
-4. Open a site → click extension → **Start scan**
-5. After code updates: click **Reload** on the extension card
+1. `chrome://extensions` → Developer mode  
+2. Load unpacked → مجلد `extension/`  
+3. بعد كل تحديث: زر **Reload** ثم امسح/أعد فتح الموقع وامسح  
 
-## How to add more tests (method)
+## كيف تضيف اختبارات أكثر؟
 
-1. Add a new step id in `extension/popup.js` → `STEP_DEFS`
-2. Implement the check inside `runScan()` in `extension/content.js`
-3. `timeline.push({ id, state, detail })`
-4. `findings.push({ severity, title, detail, evidence })`
-5. Bump `version` in `manifest.json` + report JSON
-6. Commit & push; reload extension
+1. أضف خطوة في `popup.js` → `STEP_DEFS`  
+2. اكتب الفحص في `content.js` → `runScan()`  
+3. `timeline.push` + `findings.push`  
+4. ارفع النسخة  
 
-### Ideas for v1.2+
-- Optional `chrome.debugger` / declarativeNetRequest observations (advanced)
-- Permission-denied fingerprint tips for Firestore webchannel
-- Click-helper mode: “listen 10s for new PDF requests”
-- i18n Arabic UI
-- Export markdown report
+### أفكار من GitHub (ملهمة وليست نسخًا)
+- [RetireJS/retire.js](https://github.com/RetireJS/retire.js) — مكتبات JS قديمة  
+- [momenbasel/keyFinder](https://github.com/momenbasel/keyFinder) — أسرار في storage/network  
+- [bountyyfi/lonkero](https://github.com/bountyyfi/lonkero) — JWT + endpoints  
+- [yipjunkai/secrets-spotter](https://github.com/yipjunkai/secrets-spotter) — اعتراض fetch/XHR  
 
-## Legal / ethics
-Scan sites you own or have permission to test. Do not use findings to attack or bypass paid access.
+## مهم
+- لا تخترق ولا تتجاوز اشتراكات الغير  
+- Firebase projectId ظاهر ≠ قراءة كل الملفات  
+- الحماية = Auth + Security Rules  
 
 ## License
 MIT

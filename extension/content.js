@@ -1,20 +1,19 @@
 (() => {
-  // Always reload latest scanner logic when reinjected
   window.__publicSecurityScannerLoaded = true;
 
   const SECRET_PATTERNS = [
     { name: "Google API key", re: /AIza[0-9A-Za-z\-_]{20,}/g, severity: "high" },
     { name: "AWS Access Key ID", re: /AKIA[0-9A-Z]{16}/g, severity: "high" },
-    { name: "Generic bearer/jwt-like", re: /\beyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, severity: "medium" },
+    { name: "JWT-like token", re: /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g, severity: "medium" },
     { name: "Firebase/apiKey assignment", re: /apiKey\s*[:=]\s*[\"'][^\"']+[\"']/gi, severity: "medium" },
-    { name: "Private key PEM header", re: /-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----/g, severity: "high" },
+    { name: "Private key PEM", re: /-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----/g, severity: "high" },
     { name: "Slack token-like", re: /xox[baprs]-[0-9A-Za-z-]{10,}/g, severity: "high" },
     { name: "GitHub PAT-like", re: /gh[pousr]_[A-Za-z0-9_]{20,}/g, severity: "high" },
-    { name: "Stripe secret-like", re: /sk_live_[0-9a-zA-Z]{16,}/g, severity: "high" },
-    { name: "Stripe publishable key", re: /pk_live_[0-9a-zA-Z]{16,}/g, severity: "low" },
-    { name: "SendGrid/Twilio-like key", re: /SG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}/g, severity: "high" },
+    { name: "Stripe live secret", re: /sk_live_[0-9a-zA-Z]{16,}/g, severity: "high" },
+    { name: "Stripe publishable", re: /pk_(live|test)_[0-9a-zA-Z]{16,}/g, severity: "low" },
     { name: "OpenAI-like key", re: /sk-[A-Za-z0-9]{20,}/g, severity: "high" },
-    { name: "Hardcoded password assignment", re: /password\s*[:=]\s*[\"'][^\"']{4,}[\"']/gi, severity: "medium" }
+    { name: "Hardcoded password assign", re: /password\s*[:=]\s*[\"'][^\"']{4,}[\"']/gi, severity: "medium" },
+    { name: "Bearer token assign", re: /bearer\s+[A-Za-z0-9\-_.=]{20,}/gi, severity: "medium" }
   ];
 
   const ENDPOINT_REGEXES = [
@@ -26,16 +25,23 @@
 
   const PDF_LINK_RE = /https?:\/\/[^\"'\s>]+?\.pdf(?:\?[^\"'\s>]*)?|blob:https?:\/\/[^\"'\s>]+|https?:\/\/firebasestorage\.googleapis\.com\/[^\"'\s>]+|https?:\/\/storage\.googleapis\.com\/[^\"'\s>]+/gi;
 
-  function uniq(arr) {
-    return [...new Set(arr.filter(Boolean))];
-  }
+  // inspired by public scanners (RetireJS-style library sniffing — versions only)
+  const LIB_PATTERNS = [
+    { name: "jQuery", re: /jquery[.-]([0-9]+\.[0-9]+\.[0-9]+)/i },
+    { name: "AngularJS", re: /angular[.-]([0-9]+\.[0-9]+\.[0-9]+)/i },
+    { name: "React", re: /react(?:\.production)?(?:\.min)?\.js/i },
+    { name: "Vue", re: /vue(?:\.runtime)?(?:\.min)?\.js/i },
+    { name: "Lodash", re: /lodash(?:\.min)?\.js/i },
+    { name: "Bootstrap", re: /bootstrap(?:\.bundle)?(?:\.min)?\.js/i },
+    { name: "Firebase", re: /firebase-(?:app|auth|firestore|storage)(?:\.js)?/i },
+    { name: "Moment", re: /moment(?:\.min)?\.js/i }
+  ];
 
-  function clip(s, n = 180) {
-    s = String(s || "");
-    return s.length > n ? s.slice(0, n) + "…" : s;
-  }
+  function uniq(a) { return [...new Set(a.filter(Boolean))]; }
+  function clip(s, n = 180) { s = String(s || ""); return s.length > n ? s.slice(0, n) + "…" : s; }
+  function domainOf(url) { try { return new URL(url, location.href).hostname; } catch { return null; } }
 
-  function getInlineAndExternalScripts() {
+  function getScripts() {
     const scripts = [...document.scripts];
     return {
       total: scripts.length,
@@ -45,336 +51,338 @@
     };
   }
 
-  function collectPublicSource() {
+  function collectSource() {
     const html = document.documentElement?.outerHTML || "";
-    const scripts = getInlineAndExternalScripts();
-    return {
-      html,
-      scripts,
-      combined: html + "\n" + scripts.inlineText
-    };
+    const scripts = getScripts();
+    return { html, scripts, combined: html + "\n" + scripts.inlineText };
   }
 
   function findEndpoints(text) {
     const found = [];
     for (const re of ENDPOINT_REGEXES) {
       const copy = new RegExp(re.source, re.flags.includes("g") ? re.flags : re.flags + "g");
-      let m;
-      while ((m = copy.exec(text)) !== null) found.push(m[1] || m[0]);
+      let m; while ((m = copy.exec(text)) !== null) found.push(m[1] || m[0]);
     }
-    return uniq(found).slice(0, 100);
+    return uniq(found).slice(0, 120);
   }
 
   function findSecrets(text) {
     const hits = [];
     for (const p of SECRET_PATTERNS) {
       const re = new RegExp(p.re.source, p.re.flags.includes("g") ? p.re.flags : p.re.flags + "g");
-      const matches = text.match(re) || [];
-      uniq(matches).slice(0, 5).forEach((val) => {
-        hits.push({ type: p.name, severity: p.severity, sample: clip(val, 48) });
+      uniq(text.match(re) || []).slice(0, 5).forEach((val) => {
+        hits.push({ type: p.name, severity: p.severity, sample: clip(val, 56) });
       });
     }
     return hits;
   }
 
-  function domainOf(url) {
-    try { return new URL(url, location.href).hostname; } catch { return null; }
+  function decodeJwtPayload(token) {
+    try {
+      const part = token.split(".")[1];
+      const json = atob(part.replace(/-/g, "+").replace(/_/g, "/"));
+      return JSON.parse(json);
+    } catch { return null; }
   }
 
   function analyzeStorage() {
     const localEntries = [];
     const sessionEntries = [];
+    const jwtHits = [];
     try {
       for (let i = 0; i < localStorage.length; i++) {
         const k = localStorage.key(i);
-        const v = localStorage.getItem(k);
-        localEntries.push({ key: k, valuePreview: clip(v, 80), len: (v || "").length });
+        const v = localStorage.getItem(k) || "";
+        localEntries.push({ key: k, valuePreview: clip(v, 100), len: v.length });
+        const jwts = v.match(/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g) || [];
+        jwts.forEach((t) => jwtHits.push({ where: `localStorage:${k}`, token: clip(t, 40), payload: decodeJwtPayload(t) }));
       }
     } catch {}
     try {
       for (let i = 0; i < sessionStorage.length; i++) {
         const k = sessionStorage.key(i);
-        const v = sessionStorage.getItem(k);
-        sessionEntries.push({ key: k, valuePreview: clip(v, 80), len: (v || "").length });
+        const v = sessionStorage.getItem(k) || "";
+        sessionEntries.push({ key: k, valuePreview: clip(v, 100), len: v.length });
+        const jwts = v.match(/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g) || [];
+        jwts.forEach((t) => jwtHits.push({ where: `sessionStorage:${k}`, token: clip(t, 40), payload: decodeJwtPayload(t) }));
       }
     } catch {}
 
-    const vipKeys = localEntries.filter((e) => /vip|premium|pro|subscri|plan|entitlement|was_vip/i.test(e.key));
-    const authishKeys = localEntries.filter((e) => /token|auth|session|uid|user|jwt|firebase:authUser/i.test(e.key));
-    const cacheKeys = localEntries.filter((e) => /cache|exam|content/i.test(e.key));
+    const vipKeys = localEntries.filter((e) => /vip|premium|pro\b|subscri|plan|entitlement|was_vip|isVip|is_vip/i.test(e.key));
+    const authKeys = localEntries.filter((e) => /token|auth|session|uid|user|jwt|firebase:authUser|idToken|refresh/i.test(e.key));
+    const deviceKeys = localEntries.filter((e) => /device|fingerprint|install/i.test(e.key));
+    const cacheKeys = localEntries.filter((e) => /cache|exam|content|zombie/i.test(e.key));
 
     const vipFlags = vipKeys.map((e) => {
-      const raw = (e.valuePreview || "").trim().toLowerCase();
-      let parsed = raw;
-      try { parsed = JSON.parse(localStorage.getItem(e.key)); } catch {}
-      return { key: e.key, value: String(parsed), truthy: parsed === true || parsed === "true" || parsed === 1 || parsed === "1" };
+      let parsed = e.valuePreview;
+      try { parsed = JSON.parse(localStorage.getItem(e.key)); } catch { parsed = localStorage.getItem(e.key); }
+      const truthy = parsed === true || parsed === "true" || parsed === 1 || parsed === "1";
+      return { key: e.key, value: String(parsed), truthy };
     });
 
-    return { localEntries, sessionEntries, vipKeys, authishKeys, cacheKeys, vipFlags };
+    // Firebase auth user blob often in indexedDB; we can only hint from local keys
+    const firebaseAuthHint = localEntries.some((e) => /firebase:authUser|firebaseLocalStorageDb|firestore_zombie/i.test(e.key))
+      || /firestore_zombie|firebase/i.test(localEntries.map((e) => e.key).join(" "));
+
+    return { localEntries, sessionEntries, jwtHits, vipKeys, authKeys, deviceKeys, cacheKeys, vipFlags, firebaseAuthHint };
   }
 
-  function analyzeCookies() {
-    const raw = document.cookie || "";
-    if (!raw) return { count: 0, names: [], notes: ["No document.cookie values visible (httpOnly cookies stay hidden — good for secrets)."] };
-    const parts = raw.split(";").map((x) => x.trim()).filter(Boolean);
-    const names = parts.map((p) => p.split("=")[0]);
-    return {
-      count: parts.length,
-      names,
-      notes: [
-        "Only non-httpOnly cookies are visible to page JS.",
-        "Sensitive session tokens should preferably be httpOnly + Secure + SameSite."
-      ]
-    };
+  function analyzeAccount(storage, bodyText) {
+    const signedInUi = /تسجيل الخروج|sign\s*out|log\s*out|حسابي|my account|profile/i.test(bodyText);
+    const loginUi = /تسجيل الدخول|sign\s*in|log\s*in|google/i.test(bodyText);
+    const vipFalse = storage.vipFlags.some((v) => !v.truthy);
+    const vipTrue = storage.vipFlags.some((v) => v.truthy);
+    let status = "unknown";
+    if (vipTrue) status = "vip_flag_true_client";
+    else if (storage.vipFlags.length && vipFalse) status = "logged_in_non_vip_likely";
+    else if (storage.authKeys.length || storage.firebaseAuthHint) status = "auth_signals_present";
+    else if (signedInUi) status = "signed_in_ui";
+    else if (loginUi) status = "login_ui_visible";
+    return { status, signedInUi, loginUi, vipFalse, vipTrue };
   }
 
-  function analyzePaywall(text) {
-    const bodyText = (document.body?.innerText || "").slice(0, 20000);
-    const patterns = [
-      /\bVIP\b/i,
-      /premium/i,
-      /subscribe|subscription|اشتراك/i,
-      /paywall|locked|مقفل|🔒/i,
-      /upgrade|pro plan|compte vip|حساب\s*vip/i,
-      /paypal|stripe|cib|ccp|بريدي\s*موب/i
-    ];
-    const hits = patterns.filter((re) => re.test(bodyText) || re.test(text)).map((re) => String(re));
+  function analyzePaywall(text, bodyText) {
+    const patterns = [/\bVIP\b/i, /premium/i, /subscribe|subscription|اشتراك/i, /paywall|locked|مقفل|🔒/i, /paypal|stripe|cib|ccp|بريدي/i, /compte vip|حساب\s*vip|يلزم.*vip|vip account/i];
+    const hits = patterns.filter((re) => re.test(bodyText) || re.test(text)).map(String);
     const lockButtons = [...document.querySelectorAll("button, a, [role=button]")]
       .map((el) => (el.innerText || el.textContent || "").trim())
-      .filter((t) => t && /vip|premium|subscribe|اشتراك|مقفل|🔒|pro/i.test(t))
-      .slice(0, 20);
-    return { hits, lockButtons, likelyPaywall: hits.length >= 2 || lockButtons.length > 0 };
+      .filter((t) => t && /vip|premium|subscribe|اشتراك|مقفل|🔒|pro|الحل النموذجي/i.test(t))
+      .slice(0, 25);
+    return { hits, lockButtons, likelyPaywall: hits.length >= 1 || lockButtons.length > 0 };
   }
 
   function findPdfLinks(text) {
     const fromText = text.match(PDF_LINK_RE) || [];
-    const fromAnchors = [...document.querySelectorAll("a[href]")].map((a) => a.href).filter((h) => /\.pdf|firebasestorage|storage\.googleapis|blob:/i.test(h));
-    const fromEmbeds = [...document.querySelectorAll("embed[src], iframe[src], object[data]")]
-      .map((el) => el.src || el.data)
-      .filter((h) => h && /\.pdf|blob:|storage/i.test(h));
-    return uniq([...fromText, ...fromAnchors, ...fromEmbeds]).slice(0, 40);
+    const fromAnchors = [...document.querySelectorAll("a[href]")].map((a) => a.href).filter((h) => /\.pdf($|\?)|firebasestorage|storage\.googleapis|blob:/i.test(h));
+    const fromEmbeds = [...document.querySelectorAll("embed[src], iframe[src], object[data]")].map((el) => el.src || el.data).filter((h) => h && /\.pdf|blob:|storage/i.test(h));
+    const pdfButtons = [...document.querySelectorAll("button, a, [role=button]")]
+      .map((el) => (el.innerText || "").trim())
+      .filter((t) => /pdf|طباعة|print|تحميل|download|ورقة الامتحان|ملف/i.test(t))
+      .slice(0, 20);
+    const usesPrint = /window\.print\s*\(|print\s*\(/i.test(text);
+    return {
+      links: uniq([...fromText, ...fromAnchors, ...fromEmbeds]).slice(0, 40),
+      pdfButtons,
+      usesPrint
+    };
+  }
+
+  function analyzeLinks() {
+    const anchors = [...document.querySelectorAll("a[href]")];
+    const blankNoopener = [];
+    const jsLinks = [];
+    const external = [];
+    anchors.forEach((a) => {
+      const href = a.getAttribute("href") || "";
+      if (/^javascript:/i.test(href)) jsLinks.push(href);
+      if (a.target === "_blank") {
+        const rel = (a.getAttribute("rel") || "").toLowerCase();
+        if (!rel.includes("noopener") && !rel.includes("noreferrer")) blankNoopener.push(a.href || href);
+      }
+      try {
+        const u = new URL(a.href, location.href);
+        if (u.hostname && u.hostname !== location.hostname) external.push(u.hostname);
+      } catch {}
+    });
+    return {
+      total: anchors.length,
+      blankNoopener: uniq(blankNoopener).slice(0, 15),
+      jsLinks: uniq(jsLinks).slice(0, 10),
+      externalHosts: uniq(external).slice(0, 20)
+    };
+  }
+
+  function sniffLibraries(scriptUrls, text) {
+    const found = [];
+    const hay = scriptUrls.join("\n") + "\n" + text.slice(0, 200000);
+    LIB_PATTERNS.forEach((lib) => {
+      const m = hay.match(lib.re);
+      if (m) found.push({ name: lib.name, evidence: clip(m[0], 80), version: m[1] || null });
+    });
+    return found;
+  }
+
+  function urlParamSecrets() {
+    const out = [];
+    try {
+      const u = new URL(location.href);
+      u.searchParams.forEach((val, key) => {
+        if (/token|key|auth|session|password|secret|id_token|access/i.test(key) || /eyJ[A-Za-z0-9_-]+\./.test(val)) {
+          out.push(`${key}=${clip(val, 40)}`);
+        }
+      });
+    } catch {}
+    return out;
   }
 
   async function runScan() {
     const timeline = [];
     const findings = [];
     const startedAt = new Date().toISOString();
-    const src = collectPublicSource();
+    const src = collectSource();
+    const bodyText = (document.body?.innerText || "").slice(0, 25000);
 
     // 1 HTTPS
     const isHttps = location.protocol === "https:";
-    timeline.push({ id: "https", state: isHttps ? "ok" : "bad", detail: isHttps ? `HTTPS OK (${location.origin})` : `Not HTTPS: ${location.protocol}` });
+    timeline.push({ id: "https", state: isHttps ? "ok" : "bad", detail: isHttps ? `HTTPS OK (${location.origin})` : `Not HTTPS` });
     findings.push(isHttps
-      ? { severity: "info", title: "HTTPS enabled", detail: "The page origin uses HTTPS.", evidence: location.origin }
-      : { severity: "high", title: "Page is not served over HTTPS", detail: "Data and cookies can be exposed on the network.", evidence: location.href });
+      ? { severity: "info", title: "HTTPS مفعّل", detail: "الاتصال مشفّر.", evidence: location.origin }
+      : { severity: "high", title: "الموقع ليس HTTPS", detail: "البيانات قد تُعترض على الشبكة.", evidence: location.href });
 
-    // 2 Meta / CSP
+    // 2 meta
     const cspMeta = document.querySelector('meta[http-equiv="Content-Security-Policy" i]')?.content || null;
     const generator = document.querySelector('meta[name="generator" i]')?.content || null;
     const robots = document.querySelector('meta[name="robots" i]')?.content || null;
-    const referrer = document.querySelector('meta[name="referrer" i]')?.content || null;
-    timeline.push({ id: "meta", state: cspMeta ? "ok" : "warn", detail: cspMeta ? "CSP meta tag found" : "No CSP meta tag (header CSP unknown from page JS)" });
-    if (!cspMeta) findings.push({ severity: "low", title: "No Content-Security-Policy meta tag", detail: "CSP may still be set via HTTP headers (not readable from page JS). Check DevTools → Network → Response Headers." });
-    else findings.push({ severity: "info", title: "CSP meta present", detail: "A CSP meta tag was found in public HTML.", evidence: clip(cspMeta, 220) });
-    if (generator) findings.push({ severity: "info", title: "Generator meta", detail: generator });
+    timeline.push({ id: "meta", state: cspMeta ? "ok" : "warn", detail: cspMeta ? "CSP meta موجود" : "لا CSP meta (قد يوجد في الهيدر)" });
+    if (!cspMeta) findings.push({ severity: "low", title: "لا يوجد Content-Security-Policy meta", detail: "تحقق من Response Headers في Network. يقلل XSS إن وُجد." });
+    else findings.push({ severity: "info", title: "CSP meta موجود", detail: clip(cspMeta, 200) });
+    if (generator) findings.push({ severity: "info", title: "Generator", detail: generator });
     if (robots) findings.push({ severity: "info", title: "Robots meta", detail: robots });
-    if (referrer) findings.push({ severity: "info", title: "Referrer policy meta", detail: referrer });
 
-    // 3 Assets + service worker
+    // 3 assets + SW
     const scripts = src.scripts;
     const styles = [...document.querySelectorAll('link[rel~="stylesheet"]')].map((l) => l.href);
     const images = [...document.images].map((i) => i.currentSrc || i.src).filter(Boolean);
-    const externalDomains = uniq([
-      ...scripts.external.map(domainOf),
-      ...styles.map(domainOf),
-      ...images.map(domainOf)
-    ].filter((d) => d && d !== location.hostname));
+    const externalDomains = uniq([...scripts.external, ...styles, ...images].map(domainOf).filter((d) => d && d !== location.hostname));
     let swCount = 0;
+    try { if (navigator.serviceWorker) swCount = (await navigator.serviceWorker.getRegistrations()).length; } catch {}
+    timeline.push({ id: "assets", state: "ok", detail: `scripts=${scripts.total}, styles=${styles.length}, 3rd=${externalDomains.length}, SW=${swCount}` });
+    findings.push({ severity: "info", title: "جرد الأصول العامة", detail: `Scripts ${scripts.total} (inline ${scripts.inlineCount} / external ${scripts.external.length}). CSS ${styles.length}. Third-party ${externalDomains.length}. SW ${swCount}.`, evidence: externalDomains.slice(0, 20).join("\n") || "(none)" });
+    if (swCount > 0) findings.push({ severity: "info", title: "Service Worker مسجّل", detail: "قد يخفي التحميلات في الكاش. عطّل cache عند اختبار PDF/API." });
+
+    // 4 libs
+    const libs = sniffLibraries(scripts.external, src.combined);
+    timeline.push({ id: "libs", state: libs.length ? "ok" : "ok", detail: libs.length ? `${libs.length} library signal(s)` : "No common lib filenames detected" });
+    if (libs.length) findings.push({ severity: "info", title: "مكتبات JS مكتشفة (أسماء/إشارات)", detail: "للفحص اليدوي لإصدارات قديمة. ليس CVE كامل مثل Retire.js.", evidence: libs.map((l) => `${l.name}${l.version ? "@" + l.version : ""} :: ${l.evidence}`).join("\n") });
+
+    // 5 endpoints
+    const endpoints = findEndpoints(src.combined);
+    const interesting = endpoints.filter((u) => /api|firebase|firestore|supabase|cloudfunctions|graphql|auth|token|login|paypal|stripe|googleapis|webchannel|gsessionid/i.test(u) && !/fonts\.googleapis|fonts\.gstatic|woff2?/i.test(u));
+    timeline.push({ id: "endpoints", state: interesting.length ? "warn" : "ok", detail: `${endpoints.length} urls, ${interesting.length} api-like` });
+    if (interesting.length) findings.push({ severity: "medium", title: "روابط API/Backend محتملة في السورس", detail: "راجع قواعد الحماية.", evidence: interesting.slice(0, 25).join("\n") });
+    else findings.push({ severity: "low", title: "لا API واضح في السورس", detail: "قد تُحمَّل ديناميكيًا عبر Firestore webchannel." });
+
+    // 6 firebase
+    const fbClues = uniq(src.combined.match(/[a-z0-9-]+\.firebaseapp\.com|[a-z0-9-]+\.web\.app|initializeApp\s*\(|firebase-(?:app|auth|firestore|storage)|firebasestorage|identitytoolkit/gi) || []);
+    const projectHints = uniq(src.combined.match(/firestore_zombie_firestore\/\[DEFAULT\]\/([a-z0-9-]+)/gi) || []);
+    // also from storage keys
+    let storageProject = [];
     try {
-      if (navigator.serviceWorker) {
-        const regs = await navigator.serviceWorker.getRegistrations();
-        swCount = regs.length;
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i) || "";
+        const m = k.match(/firestore_zombie_firestore\/\[DEFAULT\]\/([a-z0-9-]+)/i);
+        if (m) storageProject.push(m[1]);
       }
     } catch {}
-    timeline.push({ id: "assets", state: "ok", detail: `${scripts.total} scripts, ${styles.length} styles, ${externalDomains.length} 3rd-party domains, SW=${swCount}` });
-    findings.push({
-      severity: "info",
-      title: "Public asset inventory",
-      detail: `Scripts: ${scripts.total} total / ${scripts.inlineCount} inline / ${scripts.external.length} external. Styles: ${styles.length}. Third-party domains: ${externalDomains.length}. ServiceWorkers: ${swCount}.`,
-      evidence: externalDomains.slice(0, 25).join("\n") || "(none)"
-    });
-    if (swCount > 0) {
+    storageProject = uniq(storageProject);
+    const onFbHost = /\.web\.app$|\.firebaseapp\.com$/i.test(location.hostname);
+    timeline.push({ id: "firebase", state: (fbClues.length || onFbHost || storageProject.length) ? "warn" : "ok", detail: storageProject.length ? `project hint: ${storageProject.join(",")}` : (onFbHost ? "firebase hosting host" : `${fbClues.length} clues`) });
+    if (onFbHost || fbClues.length || storageProject.length) {
       findings.push({
         severity: "info",
-        title: "Service Worker registered",
-        detail: "Caching may hide network downloads (PDF/API may come from cache). Disable cache or use hard reload when testing."
+        title: "مؤشرات Firebase",
+        detail: "projectId/apiKey العامة طبيعية. الحماية الحقيقية = Security Rules + Auth. لا يعني إمكانية قراءة كل الملفات.",
+        evidence: [`host=${location.hostname}`, storageProject.length ? `projectId≈${storageProject.join(",")}` : "", ...fbClues.slice(0, 15)].filter(Boolean).join("\n")
       });
     }
 
-    // 4 Endpoints
-    const endpoints = findEndpoints(src.combined);
-    const interesting = endpoints.filter((u) =>
-      /api|firebase|firestore|supabase|cloudfunctions|graphql|auth|token|login|paypal|stripe|zoom|googleapis|webchannel|gsessionid/i.test(u)
-    );
-    // Reduce false positives from pure font CDNs in "interesting" medium bucket
-    const interestingNoFonts = interesting.filter((u) => !/fonts\.googleapis|fonts\.gstatic|woff2?/i.test(u));
-    timeline.push({ id: "endpoints", state: interestingNoFonts.length ? "warn" : "ok", detail: `${endpoints.length} URLs found, ${interestingNoFonts.length} API/auth-like (fonts excluded)` });
-    if (interestingNoFonts.length) {
-      findings.push({
-        severity: "medium",
-        title: "Possible public API / backend endpoints referenced",
-        detail: "Found in public HTML/JS. Review auth rules and over-exposed config. Fonts CDNs were de-prioritized.",
-        evidence: interestingNoFonts.slice(0, 25).join("\n")
-      });
-    } else {
-      findings.push({
-        severity: "low",
-        title: "Few/no strong API endpoint strings",
-        detail: "No strong API/auth URL patterns were found in public source (they may load dynamically via Firestore webchannel)."
-      });
-    }
-
-    // 5 Firebase
-    const firebaseClues = uniq((
-      src.combined.match(/[a-z0-9-]+\.firebaseapp\.com|[a-z0-9-]+\.web\.app|firebaseio\.com|initializeApp\s*\(|firebase-app\.js|firebase-auth\.js|firebase-firestore\.js|firebasestorage/gi) || []
-    ));
-    const onFirebaseHost = /\.web\.app$|\.firebaseapp\.com$/i.test(location.hostname);
-    timeline.push({ id: "firebase", state: (firebaseClues.length || onFirebaseHost) ? "warn" : "ok", detail: onFirebaseHost ? "Hosted on Firebase Hosting hostname" : (firebaseClues.length ? `${firebaseClues.length} Firebase clues` : "No Firebase clues") });
-    if (onFirebaseHost || firebaseClues.length) {
-      findings.push({
-        severity: "info",
-        title: "Firebase stack indicators",
-        detail: "Ensure Firestore/Storage security rules enforce VIP/auth server-side. Client flags are not enough.",
-        evidence: [`host=${location.hostname}`, ...firebaseClues.slice(0, 20)].join("\n")
-      });
-    }
-
-    // 6 Secrets
+    // 7 secrets
     const secrets = findSecrets(src.combined);
-    timeline.push({ id: "secrets", state: secrets.some((s) => s.severity === "high") ? "bad" : secrets.length ? "warn" : "ok", detail: secrets.length ? `${secrets.length} potential secret pattern(s)` : "No common secret patterns detected" });
-    secrets.forEach((s) => findings.push({
-      severity: s.severity,
-      title: `Possible exposed secret: ${s.type}`,
-      detail: "Heuristic match in public page source. Verify manually; false positives happen. Rotate if real.",
-      evidence: s.sample
-    }));
+    const urlSecrets = urlParamSecrets();
+    timeline.push({ id: "secrets", state: secrets.some((s) => s.severity === "high") || urlSecrets.length ? "bad" : secrets.length ? "warn" : "ok", detail: `${secrets.length} source hits, ${urlSecrets.length} url param hits` });
+    secrets.forEach((s) => findings.push({ severity: s.severity, title: `نمط سر محتمل: ${s.type}`, detail: "Heuristic — قد يكون إيجابي كاذب.", evidence: s.sample }));
+    if (urlSecrets.length) findings.push({ severity: "high", title: "أسرار/توكنات في رابط الصفحة", detail: "لا تضع tokens في query string.", evidence: urlSecrets.join("\n") });
 
-    // 7 PDF / storage links
-    const pdfLinks = findPdfLinks(src.combined);
-    const publicPdf = pdfLinks.filter((u) => /^https?:/i.test(u) && !u.startsWith("blob:"));
-    const blobPdf = pdfLinks.filter((u) => u.startsWith("blob:"));
-    timeline.push({ id: "pdf", state: publicPdf.length ? "warn" : "ok", detail: publicPdf.length ? `${publicPdf.length} public-looking PDF/storage URL(s)` : (blobPdf.length ? `${blobPdf.length} blob: link(s) (print/generated)` : "No direct PDF/storage URLs in public source") });
-    if (publicPdf.length) {
-      findings.push({
-        severity: "medium",
-        title: "Public PDF / cloud storage URLs found in page source",
-        detail: "Test in Incognito whether these open without auth. Prefer signed URLs + Storage rules for paid files.",
-        evidence: publicPdf.slice(0, 15).join("\n")
-      });
-    } else {
-      findings.push({
-        severity: "info",
-        title: "No direct public PDF URL detected in source",
-        detail: "Site may use print-to-PDF, blob generation, or fetch PDFs only after click. Re-scan after clicking download and check Network."
-      });
-    }
-    if (blobPdf.length) {
-      findings.push({
-        severity: "low",
-        title: "blob: URLs present",
-        detail: "Usually temporary in-browser files (print/export), not stable public internet links.",
-        evidence: blobPdf.slice(0, 10).join("\n")
-      });
-    }
+    // 8 pdf
+    const pdf = findPdfLinks(src.combined);
+    const publicPdf = pdf.links.filter((u) => /^https?:/i.test(u) && !u.startsWith("blob:"));
+    const blobPdf = pdf.links.filter((u) => u.startsWith("blob:"));
+    timeline.push({ id: "pdf", state: publicPdf.length ? "warn" : "ok", detail: publicPdf.length ? `${publicPdf.length} public pdf/storage url(s)` : (pdf.usesPrint || pdf.pdfButtons.length ? "print/download UI without direct URL" : "no pdf urls") });
+    if (publicPdf.length) findings.push({ severity: "medium", title: "روابط PDF/Storage عامة في السورس", detail: "اختبرها Incognito. الملفات المدفوعة يجب أن تكون signed + rules.", evidence: publicPdf.slice(0, 15).join("\n") });
+    else findings.push({ severity: "info", title: "لا رابط PDF مباشر في السورس", detail: "قد يستخدم Print-to-PDF أو blob بعد الضغط. أعد الفحص بعد التحميل وراجع Network." });
+    if (blobPdf.length) findings.push({ severity: "low", title: "روابط blob:", detail: "ملفات مؤقتة داخل المتصفح وليست رابطًا عامًا دائمًا.", evidence: blobPdf.slice(0, 8).join("\n") });
+    if (pdf.usesPrint) findings.push({ severity: "info", title: "الكود يستدعي window.print", detail: "التحميل غالبًا عبر طباعة/حفظ PDF من المتصفح وليس ملف Storage عام." });
+    if (pdf.pdfButtons.length) findings.push({ severity: "info", title: "أزرار PDF/تحميل/طباعة في الواجهة", detail: "مراقبة Network عند الضغط أفضل من البحث في HTML فقط.", evidence: pdf.pdfButtons.slice(0, 12).join(" | ") });
 
-    // 8 Forms
-    const forms = [...document.forms].map((f, idx) => ({
-      index: idx,
-      action: f.action || "(same page)",
-      method: (f.method || "get").toUpperCase(),
-      hasPassword: !!f.querySelector('input[type="password"]')
-    }));
-    const insecurePasswordForm = forms.find((f) => f.hasPassword && !String(f.action).startsWith("https:") && location.protocol !== "https:");
-    timeline.push({ id: "forms", state: insecurePasswordForm ? "bad" : "ok", detail: `${forms.length} form(s), ${forms.filter((f) => f.hasPassword).length} with password field` });
-    if (forms.length) findings.push({ severity: forms.some((f) => f.hasPassword) ? "info" : "low", title: "Public forms detected", detail: "Review form actions and HTTPS.", evidence: forms.slice(0, 10).map((f) => `#${f.index} ${f.method} ${f.action} password=${f.hasPassword}`).join("\n") });
-    if (insecurePasswordForm) findings.push({ severity: "high", title: "Password form on non-HTTPS context", detail: "Credentials may be exposed in transit.", evidence: insecurePasswordForm.action });
-
-    // 9 Storage / VIP
+    // 9 account / vip
     const storage = analyzeStorage();
-    timeline.push({ id: "storage", state: storage.vipKeys.length ? "warn" : "ok", detail: `local=${storage.localEntries.length}, session=${storage.sessionEntries.length}, vipKeys=${storage.vipKeys.length}` });
+    const account = analyzeAccount(storage, bodyText);
+    timeline.push({ id: "account", state: storage.vipFlags.length ? "warn" : "ok", detail: `status=${account.status}, vipFlags=${storage.vipFlags.length}, authKeys=${storage.authKeys.length}` });
     findings.push({
       severity: "info",
-      title: "Browser storage inventory (names + short previews)",
-      detail: "Values truncated. Secrets should not rely on localStorage alone.",
+      title: "إشارات الحساب / التخزين",
+      detail: `accountStatus=${account.status}. VIP flags=${storage.vipFlags.length}. Auth-like keys=${storage.authKeys.length}. Device keys=${storage.deviceKeys.length}.`,
       evidence: [
-        "localStorage keys:",
-        ...storage.localEntries.slice(0, 25).map((e) => `${e.key} = ${e.valuePreview}`),
-        "sessionStorage keys:",
-        ...storage.sessionEntries.slice(0, 15).map((e) => `${e.key} = ${e.valuePreview}`)
-      ].join("\n") || "(empty)"
+        ...storage.localEntries.slice(0, 20).map((e) => `${e.key} = ${e.valuePreview}`),
+        storage.sessionEntries.length ? "session:" : "",
+        ...storage.sessionEntries.slice(0, 10).map((e) => `${e.key} = ${e.valuePreview}`)
+      ].filter(Boolean).join("\n") || "(empty)"
     });
     if (storage.vipFlags.length) {
       const anyTrue = storage.vipFlags.some((v) => v.truthy);
       findings.push({
         severity: "medium",
-        title: "Client-side VIP/subscription flag(s) in localStorage",
+        title: "أعلام VIP/اشتراك في localStorage",
         detail: anyTrue
-          ? "At least one VIP-like flag is truthy in the browser. Ensure server/Firebase still authorizes paid content."
-          : "VIP-like flag(s) present and currently false/locked. Good UI signal; still verify server-side enforcement.",
+          ? "يوجد VIP=true على العميل. تأكد أن السيرفر/Firebase يفرض الصلاحية أيضًا."
+          : "VIP موجود = false (مقفل). إشارة UI جيدة؛ تحقق server-side ما زال مطلوبًا.",
         evidence: storage.vipFlags.map((v) => `${v.key}=${v.value}`).join("\n")
       });
     }
-    if (storage.authishKeys.length) {
+    if (storage.authKeys.length) findings.push({ severity: "low", title: "مفاتيح auth/session في التخزين", detail: "توكنات localStorage قابلة للسرقة عبر XSS. الأفضل httpOnly حيث يناسب.", evidence: storage.authKeys.map((e) => e.key).join(", ") });
+    if (account.status === "logged_in_non_vip_likely") findings.push({ severity: "info", title: "حساب مسجّل غالبًا وغير VIP", detail: "يتوافق مع إشعار يلزم VIP عند فتح الحلول." });
+
+    // 10 jwt
+    timeline.push({ id: "jwt", state: storage.jwtHits.length ? "warn" : "ok", detail: `${storage.jwtHits.length} jwt-like in storage` });
+    if (storage.jwtHits.length) {
       findings.push({
-        severity: "low",
-        title: "Auth/session-related storage keys",
-        detail: "Tokens in localStorage are XSS-stealable. Prefer httpOnly cookies or short-lived tokens where possible.",
-        evidence: storage.authishKeys.map((e) => e.key).join(", ")
+        severity: "medium",
+        title: "JWT داخل التخزين",
+        detail: "افحص انتهاء الصلاحية والخوارزمية. لا تشارك التوكن.",
+        evidence: storage.jwtHits.slice(0, 8).map((j) => `${j.where} :: ${j.token} :: payloadKeys=${j.payload ? Object.keys(j.payload).join(",") : "?"}`).join("\n")
       });
-    }
+    } else findings.push({ severity: "info", title: "لا JWT واضح في storage", detail: "قد تُخزَّن الجلسة في IndexedDB/httpOnly cookies." });
 
-    // 10 Cookies
-    const cookies = analyzeCookies();
-    timeline.push({ id: "cookies", state: "ok", detail: `${cookies.count} visible document.cookie value(s)` });
-    findings.push({
-      severity: "info",
-      title: "Visible cookies (document.cookie)",
-      detail: cookies.notes.join(" "),
-      evidence: cookies.names.slice(0, 30).join(", ") || "(none visible)"
-    });
+    // 11 forms
+    const forms = [...document.forms].map((f, idx) => ({ index: idx, action: f.action || "(same)", method: (f.method || "get").toUpperCase(), hasPassword: !!f.querySelector('input[type="password"]'), autocomplete: f.autocomplete || null }));
+    const badPass = forms.find((f) => f.hasPassword && location.protocol !== "https:");
+    timeline.push({ id: "forms", state: badPass ? "bad" : "ok", detail: `${forms.length} forms` });
+    if (forms.length) findings.push({ severity: "info", title: "نماذج Forms", detail: "راجع action/HTTPS.", evidence: forms.slice(0, 10).map((f) => `#${f.index} ${f.method} ${f.action} pass=${f.hasPassword}`).join("\n") });
+    if (badPass) findings.push({ severity: "high", title: "كلمة مرور على غير HTTPS", detail: "خطر اعتراض بيانات الدخول." });
+    const pwdInputs = [...document.querySelectorAll('input[type="password"]')];
+    const acOff = pwdInputs.filter((i) => (i.getAttribute("autocomplete") || "").toLowerCase() === "off");
+    if (pwdInputs.length) findings.push({ severity: "low", title: "حقول كلمة المرور", detail: `${pwdInputs.length} password input(s). autocomplete=off count=${acOff.length}.` });
 
-    // 11 Paywall heuristics
-    const paywall = analyzePaywall(src.combined);
-    timeline.push({ id: "paywall", state: paywall.likelyPaywall ? "ok" : "ok", detail: paywall.likelyPaywall ? "Paywall/VIP UI signals detected" : "No strong paywall wording detected on this page" });
-    if (paywall.likelyPaywall) {
-      findings.push({
-        severity: "info",
-        title: "Paywall / VIP UI heuristics",
-        detail: "Page mentions VIP/subscribe/lock patterns. Combine with storage VIP flags + Network denied responses for full assessment.",
-        evidence: [`buttons: ${paywall.lockButtons.slice(0, 10).join(" | ") || "(none)"}`, `patterns: ${paywall.hits.length}`].join("\n")
-      });
-    }
+    // 12 links
+    const links = analyzeLinks();
+    timeline.push({ id: "links", state: links.blankNoopener.length || links.jsLinks.length ? "warn" : "ok", detail: `a=${links.total}, blankNoRel=${links.blankNoopener.length}, javascriptUri=${links.jsLinks.length}` });
+    if (links.blankNoopener.length) findings.push({ severity: "low", title: "روابط target=_blank بدون noopener", detail: "أضف rel=noopener noreferrer.", evidence: links.blankNoopener.slice(0, 10).join("\n") });
+    if (links.jsLinks.length) findings.push({ severity: "low", title: "روابط javascript:", detail: "يفضّل تجنب javascript: URLs.", evidence: links.jsLinks.join("\n") });
 
-    // 12 Mixed content
-    const activeMixed = [];
-    if (isHttps) {
-      [...scripts.external, ...styles, ...images].forEach((u) => {
-        if (typeof u === "string" && u.startsWith("http://")) activeMixed.push(u);
-      });
-    }
-    timeline.push({ id: "mixed", state: activeMixed.length ? "bad" : "ok", detail: activeMixed.length ? `${activeMixed.length} http:// asset(s) on https page` : "No active mixed-content assets detected" });
-    if (activeMixed.length) {
-      findings.push({ severity: "high", title: "Mixed content assets", detail: "HTTPS page loads HTTP resources.", evidence: uniq(activeMixed).slice(0, 20).join("\n") });
-    }
+    // 13 cookies
+    const rawCookie = document.cookie || "";
+    const cookieNames = rawCookie ? rawCookie.split(";").map((x) => x.trim().split("=")[0]).filter(Boolean) : [];
+    timeline.push({ id: "cookies", state: "ok", detail: `${cookieNames.length} visible cookies` });
+    findings.push({ severity: "info", title: "كوكيز ظاهرة لـ JS", detail: "httpOnly لا تظهر هنا (هذا جيد للأسرار).", evidence: cookieNames.join(", ") || "(none)" });
 
-    // 13 Summary
+    // 14 paywall
+    const paywall = analyzePaywall(src.combined, bodyText);
+    timeline.push({ id: "paywall", state: "ok", detail: paywall.likelyPaywall ? "paywall signals yes" : "no strong paywall text" });
+    if (paywall.likelyPaywall) findings.push({ severity: "info", title: "إشارات Paywall/VIP في الواجهة", detail: "ادمج مع VIP flags + رفض السيرفر لتقييم كامل.", evidence: `buttons: ${paywall.lockButtons.slice(0, 12).join(" | ") || "(none)"}\npatterns: ${paywall.hits.length}` });
+
+    // 15 mixed
+    const mixed = [];
+    if (isHttps) [...scripts.external, ...styles, ...images].forEach((u) => { if (String(u).startsWith("http://")) mixed.push(u); });
+    timeline.push({ id: "mixed", state: mixed.length ? "bad" : "ok", detail: mixed.length ? `${mixed.length} mixed` : "no mixed content" });
+    if (mixed.length) findings.push({ severity: "high", title: "Mixed content", detail: "HTTPS يحمّل HTTP.", evidence: uniq(mixed).slice(0, 15).join("\n") });
+
+    // 16 summary
     const counts = { high: 0, medium: 0, low: 0, info: 0 };
     findings.forEach((f) => { counts[f.severity] = (counts[f.severity] || 0) + 1; });
-    let status = "Healthy";
-    let state = "ok";
+    let status = "Healthy", state = "ok";
     if (counts.high > 0) { status = "Issues found"; state = "bad"; }
     else if (counts.medium > 0) { status = "Review recommended"; state = "warn"; }
-    timeline.push({ id: "summary", state, detail: `${status} · high=${counts.high} medium=${counts.medium} low=${counts.low} info=${counts.info}` });
+    timeline.push({ id: "summary", state, detail: `${status} · H${counts.high} M${counts.medium} L${counts.low} I${counts.info}` });
 
     const order = { high: 0, medium: 1, low: 2, info: 3 };
     findings.sort((a, b) => (order[a.severity] ?? 9) - (order[b.severity] ?? 9));
@@ -384,38 +392,33 @@
       timeline,
       report: {
         tool: "web-public-security-scanner",
-        version: "1.1.0",
+        version: "1.2.0",
         startedAt,
         finishedAt: new Date().toISOString(),
         url: location.href,
         origin: location.origin,
         status,
         counts,
+        accountStatus: account.status,
+        firebaseProjectHints: storageProjectOr(storageProject),
         inventory: {
           scriptsTotal: scripts.total,
-          scriptsExternal: scripts.external.length,
-          scriptsInline: scripts.inlineCount,
-          styles: styles.length,
           thirdPartyDomains: externalDomains,
           serviceWorkers: swCount,
-          endpointsFound: endpoints.length,
-          interestingEndpoints: interestingNoFonts.length,
-          pdfLinks: pdfLinks.length,
-          forms: forms.length,
+          libraries: libs,
+          pdfLinks: pdf.links.length,
           vipFlags: storage.vipFlags
         },
-        endpoints: interestingNoFonts.slice(0, 50),
-        pdfLinks: pdfLinks.slice(0, 30),
         findings
       }
     };
+
+    function storageProjectOr(p) { return p; }
   }
 
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg?.type !== "RUN_PUBLIC_SECURITY_SCAN") return;
-    runScan()
-      .then(sendResponse)
-      .catch((err) => sendResponse({ ok: false, error: err?.message || String(err) }));
+    runScan().then(sendResponse).catch((err) => sendResponse({ ok: false, error: err?.message || String(err) }));
     return true;
   });
 })();

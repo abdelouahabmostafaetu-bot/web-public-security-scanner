@@ -11,19 +11,22 @@ const summaryCards = document.getElementById("summaryCards");
 let lastReport = null;
 
 const STEP_DEFS = [
-  { id: "https", title: "Check HTTPS & page origin" },
-  { id: "meta", title: "Read meta / CSP / generator clues" },
-  { id: "assets", title: "Inventory scripts, styles, images, SW" },
-  { id: "endpoints", title: "Discover public API / backend URLs" },
-  { id: "firebase", title: "Detect Firebase / web.app patterns" },
-  { id: "secrets", title: "Scan public source for secret patterns" },
-  { id: "pdf", title: "Find public PDF / storage / blob links" },
-  { id: "forms", title: "Inspect forms & password fields" },
-  { id: "storage", title: "Analyze local/session storage (VIP flags)" },
-  { id: "cookies", title: "Inspect cookie flags (public view)" },
-  { id: "paywall", title: "Paywall / VIP UI heuristics" },
-  { id: "mixed", title: "Detect mixed-content risks" },
-  { id: "summary", title: "Build final status summary" }
+  { id: "https", title: "1) HTTPS & origin" },
+  { id: "meta", title: "2) Meta / CSP / referrer" },
+  { id: "assets", title: "3) Assets + Service Worker" },
+  { id: "libs", title: "4) Known JS library versions" },
+  { id: "endpoints", title: "5) API / backend URLs" },
+  { id: "firebase", title: "6) Firebase / project clues" },
+  { id: "secrets", title: "7) Secret patterns in source" },
+  { id: "pdf", title: "8) PDF / Storage / blob links" },
+  { id: "account", title: "9) Account / VIP / auth signals" },
+  { id: "jwt", title: "10) JWT in storage/URL" },
+  { id: "forms", title: "11) Forms & passwords" },
+  { id: "links", title: "12) Dangerous links / tabs" },
+  { id: "cookies", title: "13) Visible cookies" },
+  { id: "paywall", title: "14) Paywall UI heuristics" },
+  { id: "mixed", title: "15) Mixed content" },
+  { id: "summary", title: "16) Final status" }
 ];
 
 function setStatus(kind, text) {
@@ -57,14 +60,12 @@ function severityClass(sev) {
 function renderReport(report) {
   lastReport = report;
   exportBtn.disabled = !report;
-
   const c = report.counts || { high: 0, medium: 0, low: 0, info: 0 };
   summaryCards.innerHTML = `
     <div class="card bad"><div class="n">${c.high}</div><div class="t">High</div></div>
     <div class="card warn"><div class="n">${c.medium}</div><div class="t">Medium</div></div>
-    <div class="card ok"><div class="n">${c.low + c.info}</div><div class="t">Low/Info</div></div>
+    <div class="card ok"><div class="n">${(c.low || 0) + (c.info || 0)}</div><div class="t">Low/Info</div></div>
   `;
-
   findingsEl.innerHTML = "";
   (report.findings || []).forEach((f) => {
     const div = document.createElement("div");
@@ -77,9 +78,8 @@ function renderReport(report) {
     `;
     findingsEl.appendChild(div);
   });
-
   if (!report.findings?.length) {
-    findingsEl.innerHTML = `<div class="finding"><span class="sev low">OK</span><h3>No major public issues flagged</h3><p>Only public client-side checks were run.</p></div>`;
+    findingsEl.innerHTML = `<div class="finding"><span class="sev low">OK</span><h3>No findings</h3><p>Public client-side checks only.</p></div>`;
   }
 }
 
@@ -96,37 +96,28 @@ async function init() {
 
 scanBtn.addEventListener("click", async () => {
   const tab = await getActiveTab();
-  if (!tab?.id || !tab.url || tab.url.startsWith("chrome://") || tab.url.startsWith("edge://") || tab.url.startsWith("about:")) {
+  if (!tab?.id || !tab.url || /^(chrome|edge|about|chrome-extension):/i.test(tab.url)) {
     setStatus("error", "Error");
     alert("Open a normal http(s) website first.");
     return;
   }
-
   scanBtn.disabled = true;
   exportBtn.disabled = true;
   findingsEl.innerHTML = "";
   summaryCards.innerHTML = "";
   setStatus("running", "Running");
-
   const states = {};
   STEP_DEFS.forEach((s) => { states[s.id] = { state: "wait", detail: "Queued" }; });
   renderSteps(states);
   progressText.textContent = `0 / ${STEP_DEFS.length}`;
   progressBar.style.width = "0%";
-
   try {
-    await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      files: ["content.js"]
-    });
-
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content.js"] });
     const response = await chrome.tabs.sendMessage(tab.id, {
       type: "RUN_PUBLIC_SECURITY_SCAN",
       steps: STEP_DEFS.map((s) => s.id)
     });
-
     if (!response?.ok) throw new Error(response?.error || "Scan failed");
-
     const timeline = response.timeline || [];
     for (let i = 0; i < timeline.length; i++) {
       const t = timeline[i];
@@ -134,9 +125,8 @@ scanBtn.addEventListener("click", async () => {
       renderSteps(states);
       progressText.textContent = `${i + 1} / ${STEP_DEFS.length}`;
       progressBar.style.width = `${Math.round(((i + 1) / STEP_DEFS.length) * 100)}%`;
-      await new Promise((r) => setTimeout(r, 90));
+      await new Promise((r) => setTimeout(r, 70));
     }
-
     renderReport(response.report);
     setStatus("done", response.report?.status || "Done");
   } catch (err) {
