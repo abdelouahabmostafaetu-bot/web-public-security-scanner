@@ -12,12 +12,16 @@ let lastReport = null;
 
 const STEP_DEFS = [
   { id: "https", title: "Check HTTPS & page origin" },
-  { id: "meta", title: "Read public meta / CSP clues" },
-  { id: "assets", title: "Inventory scripts, styles, images" },
-  { id: "endpoints", title: "Discover public API / URL endpoints" },
+  { id: "meta", title: "Read meta / CSP / generator clues" },
+  { id: "assets", title: "Inventory scripts, styles, images, SW" },
+  { id: "endpoints", title: "Discover public API / backend URLs" },
+  { id: "firebase", title: "Detect Firebase / web.app patterns" },
   { id: "secrets", title: "Scan public source for secret patterns" },
+  { id: "pdf", title: "Find public PDF / storage / blob links" },
   { id: "forms", title: "Inspect forms & password fields" },
-  { id: "storage", title: "List local/session storage keys" },
+  { id: "storage", title: "Analyze local/session storage (VIP flags)" },
+  { id: "cookies", title: "Inspect cookie flags (public view)" },
+  { id: "paywall", title: "Paywall / VIP UI heuristics" },
   { id: "mixed", title: "Detect mixed-content risks" },
   { id: "summary", title: "Build final status summary" }
 ];
@@ -111,7 +115,6 @@ scanBtn.addEventListener("click", async () => {
   progressBar.style.width = "0%";
 
   try {
-    // Ensure content script is present
     await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       files: ["content.js"]
@@ -124,7 +127,6 @@ scanBtn.addEventListener("click", async () => {
 
     if (!response?.ok) throw new Error(response?.error || "Scan failed");
 
-    // Animate steps from report timeline
     const timeline = response.timeline || [];
     for (let i = 0; i < timeline.length; i++) {
       const t = timeline[i];
@@ -132,7 +134,7 @@ scanBtn.addEventListener("click", async () => {
       renderSteps(states);
       progressText.textContent = `${i + 1} / ${STEP_DEFS.length}`;
       progressBar.style.width = `${Math.round(((i + 1) / STEP_DEFS.length) * 100)}%`;
-      await new Promise((r) => setTimeout(r, 120));
+      await new Promise((r) => setTimeout(r, 90));
     }
 
     renderReport(response.report);
