@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Web Public Security Scanner",
-  "version": "1.3.1",
-  "description": "Read-only vulnerability heuristics scanner. Fixed reliable injection.",
+  "version": "1.4.0",
+  "description": "Professional read-only web security review: OWASP mapping, security headers, CORS, SRI, supply chain, secrets, PDF and account gating checks.",
   "action": {
     "default_title": "Public Security Scan",
     "default_popup": "popup.html",
